@@ -1,0 +1,12 @@
+# ====== NASA FIRMS CONFIG ======
+FIRMS_MAP_KEY = "19a7d1d2a09756d1365538dac5c68941"
+
+# India bounding box
+WEST, SOUTH, EAST, NORTH = 68, 6, 97, 36
+
+DAYS = 1
+FIRMS_SOURCE = "MODIS_NRT"
+
+# Alert thresholds
+MIN_CONFIDENCE = 60
+MIN_FRP = 10
