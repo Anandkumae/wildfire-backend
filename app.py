@@ -113,11 +113,19 @@ async def detect_frame(data: dict):
         
         print(f"🖼️ Frame decoded: {frame.shape}")
         
+        # Save frame for debugging (optional - uncomment to save frames)
+        # debug_path = f"uploads/debug_frame_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        # cv2.imwrite(debug_path, frame)
+        # print(f"💾 Saved debug frame to: {debug_path}")
+        
         # Run YOLO detection on frame with lower confidence threshold
-        results = yolo.model(frame, conf=0.25, verbose=False)  # Lowered from 0.4 to 0.25
+        results = yolo.model(frame, conf=0.15, verbose=False)  # Lowered from 0.25 to 0.15 for better detection
         detections = []
         
+        print(f"🔍 YOLO Results: {len(results)} result(s)")
+        
         for r in results:
+            print(f"📦 Boxes found: {len(r.boxes)}")
             for box in r.boxes:
                 detection = {
                     "class": int(box.cls),
@@ -125,24 +133,35 @@ async def detect_frame(data: dict):
                     "bbox": box.xyxy.tolist()[0] if hasattr(box, 'xyxy') else None
                 }
                 detections.append(detection)
-                print(f"🔍 Detection: class={detection['class']}, confidence={detection['confidence']:.2f}")
+                print(f"🔍 Detection: class={detection['class']}, confidence={detection['confidence']:.2f}, bbox={detection['bbox']}")
         
         has_fire = len(detections) > 0
         
         if has_fire:
             print(f"🔥 FIRE DETECTED! {len(detections)} detection(s)")
         else:
-            print(f"✅ No fire detected in frame")
+            print(f"✅ No fire detected in frame (checked with conf=0.15)")
+            print(f"ℹ️  This could mean:")
+            print(f"   - No fire visible in the camera feed")
+            print(f"   - Fire is too small or unclear")
+            print(f"   - Lighting conditions are poor")
+            print(f"   - Try pointing camera at actual fire source")
         
         return {
             "detections": detections,
             "has_fire": has_fire,
             "timestamp": datetime.now().isoformat(),
-            "frame_size": frame.shape[:2]
+            "frame_size": frame.shape[:2],
+            "debug_info": {
+                "confidence_threshold": 0.15,
+                "total_boxes_checked": sum(len(r.boxes) for r in results)
+            }
         }
         
     except Exception as e:
         print(f"❌ Error in frame detection: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {"error": str(e), "detections": [], "has_fire": False}
 
 @app.get("/proxy/camera")
