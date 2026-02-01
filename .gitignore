@@ -132,3 +132,5 @@ secrets.json
 *.tar
 *.tar.gz
 *.rar
+!models/fire_smoke_yolo_best.pt
+!models/satellite_wildfire_resnet18.pth
