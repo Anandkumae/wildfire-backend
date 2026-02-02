@@ -14,6 +14,9 @@ from firms_fetcher import fetch_modis_data
 from alert_engine import filter_fire_events
 from hotspot_verifier import verify_all_hotspots
 
+# ===== NEW: GOOGLE EARTH ENGINE SERVICE =====
+from services.gee_service import analyze_hotspot
+
 app = FastAPI(title="Forest Fire AI System")
 
 # Enable CORS for frontend
@@ -194,3 +197,61 @@ def get_all_satellite_alerts():
         "alerts": alerts,
         "note": "Unverified thermal hotspots - may include false alarms"
     }
+
+
+# ==============================
+# 🛰️ NEW: GOOGLE EARTH ENGINE ENDPOINT
+# ==============================
+
+@app.get("/api/hotspot-details")
+async def get_hotspot_details(lat: float, lon: float, date: str = None):
+    """
+    Get detailed satellite imagery and temperature data for a specific hotspot.
+    
+    Uses Google Earth Engine to fetch:
+    - Real Sentinel-2 RGB satellite imagery
+    - MODIS surface temperature data
+    - Comprehensive metadata
+    
+    Args:
+        lat: Latitude of the hotspot
+        lon: Longitude of the hotspot
+        date: Optional date in YYYY-MM-DD format (defaults to yesterday)
+    
+    Returns:
+        {
+            "lat": float,
+            "lon": float,
+            "satellite_image_url": str,
+            "satellite_source": str,
+            "temperature_data": {
+                "temperature_celsius": float,
+                "temperature_kelvin": float,
+                "acquisition_date": str
+            },
+            "cloud_coverage": float,
+            "acquisition_date": str,
+            "analysis_timestamp": str
+        }
+    """
+    try:
+        result = analyze_hotspot(lat, lon, date)
+        return result
+    except Exception as e:
+        return {
+            "error": str(e),
+            "lat": lat,
+            "lon": lon,
+            "message": "Failed to fetch GEE data. Ensure 'earthengine authenticate' has been run."
+        }
+
+
+# ==============================
+# 📁 STATIC FILE SERVING
+# ==============================
+
+from fastapi.staticfiles import StaticFiles
+
+# Serve satellite images
+os.makedirs("outputs/satellite_images", exist_ok=True)
+app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
