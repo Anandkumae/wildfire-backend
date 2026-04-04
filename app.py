@@ -4,6 +4,10 @@ from fastapi.responses import StreamingResponse, Response
 import shutil, os
 import json
 import asyncio
+import base64
+import numpy as np
+import cv2
+from datetime import datetime
 
 # ===== EXISTING SERVICES =====
 from services.yolo_service import FireSmokeDetector
@@ -106,10 +110,11 @@ async def detect_satellite_fire(file: UploadFile = File(...)):
 
 
 @app.post("/detect/frame")
-async def detect_frame(data: dict):
-    import base64, numpy as np, cv2
-    from datetime import datetime
-
+def detect_frame(data: dict):
+    """
+    Highly optimized frame detection for live camera.
+    Uses sync 'def' to run in a separate thread pool, preventing event loop blocking.
+    """
     try:
         image_data = data.get("frame", "")
         if not image_data:
@@ -121,6 +126,10 @@ async def detect_frame(data: dict):
         image_bytes = base64.b64decode(image_data)
         frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
 
+        if frame is None:
+            return {"error": "Could not decode frame"}
+
+        # Perform inference (Heavy CPU work)
         results = yolo.model(frame, conf=0.15, verbose=False)
         detections = []
 
@@ -139,6 +148,7 @@ async def detect_frame(data: dict):
         }
 
     except Exception as e:
+        print(f"❌ Error in detect_frame: {str(e)}")
         return {"error": str(e), "detections": [], "has_fire": False}
 
 
