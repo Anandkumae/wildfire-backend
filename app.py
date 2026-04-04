@@ -8,6 +8,8 @@ import base64
 import numpy as np
 import cv2
 from datetime import datetime
+import time
+import threading
 
 # ===== EXISTING SERVICES =====
 from services.yolo_service import FireSmokeDetector
@@ -167,8 +169,16 @@ async def proxy_camera(url: str):
         return {"error": str(e)}
 
 # ==============================
-# 🛰️ NEW: SATELLITE ALERT ENDPOINT
+# 🛰️ SATELLITE ALERT ENDPOINT (OPTIMIZED WITH CACHING)
 # ==============================
+
+# Simple thread-safe cache
+satellite_cache = {
+    "data": None,
+    "last_updated": 0
+}
+cache_lock = threading.Lock()
+CACHE_DURATION = 600  # 10 minutes
 
 @app.get("/satellite-alerts")
 def get_satellite_alerts():
@@ -176,41 +186,76 @@ def get_satellite_alerts():
     Fetch near-real-time NASA MODIS fire hotspots via FIRMS,
     filter high-confidence events, and verify with computer vision.
     
-    This reduces false alarms by cross-referencing thermal detections
-    with visual confirmation using YOLO fire detection.
+    Optimized with 10-minute caching to prevent Render timeouts & 502 errors.
     """
-    print("\n" + "="*60)
-    print("🛰️ SATELLITE ALERT SYSTEM - WITH VISUAL VERIFICATION")
-    print("="*60)
+    global satellite_cache
     
-    # Step 1: Fetch thermal hotspots from NASA FIRMS
-    print("\n📡 Step 1: Fetching thermal hotspots from NASA FIRMS...")
-    df = fetch_modis_data()
-    thermal_hotspots = filter_fire_events(df)
-    print(f"   Found {len(thermal_hotspots)} thermal hotspots")
+    current_time = time.time()
     
-    # Step 2: Verify hotspots with computer vision
-    print("\n🔍 Step 2: Verifying hotspots with computer vision...")
-    verification_results = verify_all_hotspots(thermal_hotspots, yolo.model)
+    # Try to return cached data
+    if satellite_cache["data"] and (current_time - satellite_cache["last_updated"] < CACHE_DURATION):
+        print(f"📡 Serving satellite alerts from cache (age: {int(current_time - satellite_cache['last_updated'])}s)")
+        return satellite_cache["data"]
     
-    # Step 3: Return ALL categories for interactive filtering
-    print("\n✅ Step 3: Returning all alert categories for filtering")
-    print("="*60 + "\n")
-    
-    return {
-        "count": len(verification_results['verified_fires']),
-        "alerts": verification_results['verified_fires'],
-        "unverified_alerts": verification_results['unverified'],
-        "false_alarms": verification_results['false_alarms'],
-        "verification_stats": verification_results['stats'],
-        "false_alarms_rejected": len(verification_results['false_alarms']),
-        "unverified_count": len(verification_results['unverified']),
-        "system_intelligence": {
-            "method": "thermal_and_visual_verification",
-            "description": "Cross-references NASA FIRMS thermal data with YOLO computer vision to reduce false alarms",
-            "accuracy_improvement": "Reduces false positives by ~60-80%"
-        }
-    }
+    # Use lock to prevent multiple simultaneous fetches
+    with cache_lock:
+        # Check again inside lock (double-checked locking)
+        if satellite_cache["data"] and (current_time - satellite_cache["last_updated"] < CACHE_DURATION):
+            return satellite_cache["data"]
+            
+        try:
+            print("\n" + "="*60)
+            print("🛰️ SATELLITE ALERT SYSTEM - UPDATING DATA")
+            print("="*60)
+            
+            # Step 1: Fetch hotspots from NASA FIRMS
+            print("\n📡 Step 1: Fetching hotspots from NASA FIRMS...")
+            df = fetch_modis_data()
+            thermal_hotspots = filter_fire_events(df)
+            print(f"   Fetched {len(thermal_hotspots)} hotspots")
+            
+            # Limit processing if too many hotspots found
+            if len(thermal_hotspots) > 50:
+                print(f"   ⚠️ Too many hotspots ({len(thermal_hotspots)}). Limiting to top 50.")
+                thermal_hotspots = thermal_hotspots[:50]
+                
+            # Step 2: Verify hotspots
+            print("\n🔍 Step 2: Verifying with computer vision...")
+            verification_results = verify_all_hotspots(thermal_hotspots, yolo.model)
+            
+            # Step 3: Format response
+            response = {
+                "count": len(verification_results['verified_fires']),
+                "alerts": verification_results['verified_fires'],
+                "unverified_alerts": verification_results['unverified'],
+                "false_alarms": verification_results['false_alarms'],
+                "verification_stats": verification_results['stats'],
+                "false_alarms_rejected": len(verification_results['false_alarms']),
+                "unverified_count": len(verification_results['unverified']),
+                "cached_at": datetime.now().isoformat(),
+                "system_intelligence": {
+                    "method": "thermal_and_visual_verification",
+                    "description": "NASA FIRMS thermal cross-referenced with YOLO visual confirmation",
+                    "accuracy_improvement": "Reduces false alarms by ~60-80%"
+                }
+            }
+            
+            # Update cache
+            satellite_cache["data"] = response
+            satellite_cache["last_updated"] = time.time()
+            
+            print("✅ Cache updated successfully")
+            print("="*60 + "\n")
+            
+            return response
+            
+        except Exception as e:
+            print(f"❌ Error updating satellite alerts: {str(e)}")
+            # If fetch fails, return old cache if available
+            if satellite_cache["data"]:
+                print("⚠️ Returning stale cache due to fetch error")
+                return satellite_cache["data"]
+            return {"error": str(e), "count": 0, "alerts": []}
 
 
 @app.get("/satellite-alerts/all")
