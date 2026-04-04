@@ -175,87 +175,105 @@ async def proxy_camera(url: str):
 # Simple thread-safe cache
 satellite_cache = {
     "data": None,
-    "last_updated": 0
+    "last_updated": 0,
+    "is_fetching": False
 }
 cache_lock = threading.Lock()
 CACHE_DURATION = 600  # 10 minutes
 
+def background_fetch_satellite_data():
+    """Background task to fetch NASA data without blocking the HTTP response."""
+    global satellite_cache
+    
+    with cache_lock:
+        if satellite_cache["is_fetching"]:
+            return
+        satellite_cache["is_fetching"] = True
+        
+    try:
+        print("\n" + "="*60)
+        print("🛰️ SATELLITE ALERT SYSTEM - UPDATING DATA (BACKGROUND)")
+        print("="*60)
+        
+        # Step 1: Fetch hotspots from NASA FIRMS
+        print("\n📡 Step 1: Fetching hotspots from NASA FIRMS...")
+        df = fetch_modis_data()
+        thermal_hotspots = filter_fire_events(df)
+        print(f"   Fetched {len(thermal_hotspots)} hotspots")
+        
+        # Limit processing if too many hotspots found
+        if len(thermal_hotspots) > 50:
+            print(f"   ⚠️ Too many hotspots ({len(thermal_hotspots)}). Limiting to top 50.")
+            thermal_hotspots = thermal_hotspots[:50]
+            
+        # Step 2: Verify hotspots
+        print("\n🔍 Step 2: Verifying with computer vision...")
+        verification_results = verify_all_hotspots(thermal_hotspots, yolo.model)
+        
+        # Step 3: Format response
+        response = {
+            "count": len(verification_results['verified_fires']),
+            "alerts": verification_results['verified_fires'],
+            "unverified_alerts": verification_results['unverified'],
+            "false_alarms": verification_results['false_alarms'],
+            "verification_stats": verification_results['stats'],
+            "false_alarms_rejected": len(verification_results['false_alarms']),
+            "unverified_count": len(verification_results['unverified']),
+            "cached_at": datetime.now().isoformat(),
+            "system_intelligence": {
+                "method": "thermal_and_visual_verification",
+                "description": "NASA FIRMS thermal cross-referenced with YOLO visual confirmation",
+                "accuracy_improvement": "Reduces false alarms by ~60-80%"
+            }
+        }
+        
+        # Update cache
+        with cache_lock:
+            satellite_cache["data"] = response
+            satellite_cache["last_updated"] = time.time()
+            satellite_cache["is_fetching"] = False
+        
+        print("✅ Background cache update complete")
+        print("="*60 + "\n")
+        
+    except Exception as e:
+        print(f"❌ Error in background satellite fetch: {str(e)}")
+        with cache_lock:
+            satellite_cache["is_fetching"] = False
+
 @app.get("/satellite-alerts")
 def get_satellite_alerts():
     """
-    Fetch near-real-time NASA MODIS fire hotspots via FIRMS,
-    filter high-confidence events, and verify with computer vision.
-    
-    Optimized with 10-minute caching to prevent Render timeouts & 502 errors.
+    Fetch NASA MODIS fire hotspots.
+    Uses background fetching to prevent Render timeouts (502 errors).
     """
     global satellite_cache
     
     current_time = time.time()
     
-    # Try to return cached data
+    # 1. Return valid cache if available
     if satellite_cache["data"] and (current_time - satellite_cache["last_updated"] < CACHE_DURATION):
-        print(f"📡 Serving satellite alerts from cache (age: {int(current_time - satellite_cache['last_updated'])}s)")
         return satellite_cache["data"]
     
-    # Use lock to prevent multiple simultaneous fetches
-    with cache_lock:
-        # Check again inside lock (double-checked locking)
-        if satellite_cache["data"] and (current_time - satellite_cache["last_updated"] < CACHE_DURATION):
-            return satellite_cache["data"]
-            
-        try:
-            print("\n" + "="*60)
-            print("🛰️ SATELLITE ALERT SYSTEM - UPDATING DATA")
-            print("="*60)
-            
-            # Step 1: Fetch hotspots from NASA FIRMS
-            print("\n📡 Step 1: Fetching hotspots from NASA FIRMS...")
-            df = fetch_modis_data()
-            thermal_hotspots = filter_fire_events(df)
-            print(f"   Fetched {len(thermal_hotspots)} hotspots")
-            
-            # Limit processing if too many hotspots found
-            if len(thermal_hotspots) > 50:
-                print(f"   ⚠️ Too many hotspots ({len(thermal_hotspots)}). Limiting to top 50.")
-                thermal_hotspots = thermal_hotspots[:50]
-                
-            # Step 2: Verify hotspots
-            print("\n🔍 Step 2: Verifying with computer vision...")
-            verification_results = verify_all_hotspots(thermal_hotspots, yolo.model)
-            
-            # Step 3: Format response
-            response = {
-                "count": len(verification_results['verified_fires']),
-                "alerts": verification_results['verified_fires'],
-                "unverified_alerts": verification_results['unverified'],
-                "false_alarms": verification_results['false_alarms'],
-                "verification_stats": verification_results['stats'],
-                "false_alarms_rejected": len(verification_results['false_alarms']),
-                "unverified_count": len(verification_results['unverified']),
-                "cached_at": datetime.now().isoformat(),
-                "system_intelligence": {
-                    "method": "thermal_and_visual_verification",
-                    "description": "NASA FIRMS thermal cross-referenced with YOLO visual confirmation",
-                    "accuracy_improvement": "Reduces false alarms by ~60-80%"
-                }
-            }
-            
-            # Update cache
-            satellite_cache["data"] = response
-            satellite_cache["last_updated"] = time.time()
-            
-            print("✅ Cache updated successfully")
-            print("="*60 + "\n")
-            
-            return response
-            
-        except Exception as e:
-            print(f"❌ Error updating satellite alerts: {str(e)}")
-            # If fetch fails, return old cache if available
-            if satellite_cache["data"]:
-                print("⚠️ Returning stale cache due to fetch error")
-                return satellite_cache["data"]
-            return {"error": str(e), "count": 0, "alerts": []}
+    # 2. If no valid cache, check if we're already fetching
+    if satellite_cache["is_fetching"]:
+        return {
+            "fetching": True,
+            "message": "Update in progress... please wait 10-15 seconds.",
+            "data": satellite_cache["data"] # Return old data if it exists
+        }
+    
+    # 3. Start a new background fetch if none is running
+    thread = threading.Thread(target=background_fetch_satellite_data)
+    thread.daemon = True
+    thread.start()
+    
+    # 4. Response while fetching
+    return {
+        "fetching": True,
+        "message": "🛰️ NASA data fetch started! Please wait ~20 seconds and click again.",
+        "data": satellite_cache["data"] # Return old data if it exists
+    }
 
 
 @app.get("/satellite-alerts/all")

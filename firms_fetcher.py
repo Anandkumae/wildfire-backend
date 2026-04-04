@@ -3,10 +3,10 @@ import pandas as pd
 from config import *
 
 def fetch_modis_data():
+    # Use NASA FIRMS Country API for India (much faster than area API)
     url = (
-        f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/"
-        f"{FIRMS_MAP_KEY}/{FIRMS_SOURCE}/"
-        f"{WEST},{SOUTH},{EAST},{NORTH}/{DAYS}"
+        f"https://firms.modaps.eosdis.nasa.gov/api/country/csv/"
+        f"{FIRMS_MAP_KEY}/{FIRMS_SOURCE}/IND/{DAYS}"
     )
 
     try:
