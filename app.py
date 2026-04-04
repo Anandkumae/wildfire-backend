@@ -39,6 +39,22 @@ yolo = FireSmokeDetector("models/fire_smoke_yolo_best.pt")
 satellite = SatelliteFireDetector("models/satellite_wildfire_resnet18.pth")
 
 # ==============================
+# 🏠 HOME / HEALTH CHECK
+# ==============================
+
+@app.get("/")
+async def root():
+    return {
+        "status": "online",
+        "message": "Forest Fire AI System API is running",
+        "endpoints": {
+            "detect_fire_smoke": "/detect/fire-smoke (POST)",
+            "satellite_alerts": "/satellite-alerts (GET)",
+            "hotspot_details": "/api/hotspot-details (GET)"
+        }
+    }
+
+# ==============================
 # 🔥 EXISTING ENDPOINTS (UNCHANGED)
 # ==============================
 
