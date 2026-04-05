@@ -40,9 +40,30 @@ app.add_middleware(
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# ===== MODELS =====
-yolo = FireSmokeDetector("models/fire_smoke_yolo_best.pt")
-satellite = SatelliteFireDetector("models/satellite_wildfire_resnet18.pth")
+# ===== MODELS (LAZY LOADING) =====
+_yolo_instance = None
+_satellite_instance = None
+model_lock = threading.Lock()
+
+def get_yolo():
+    global _yolo_instance
+    if _yolo_instance is None:
+        with model_lock:
+            if _yolo_instance is None:
+                print("⏳ Loading YOLO model...")
+                _yolo_instance = FireSmokeDetector("models/fire_smoke_yolo_best.pt")
+                print("✅ YOLO model loaded")
+    return _yolo_instance
+
+def get_satellite():
+    global _satellite_instance
+    if _satellite_instance is None:
+        with model_lock:
+            if _satellite_instance is None:
+                print("⏳ Loading satellite model...")
+                _satellite_instance = SatelliteFireDetector("models/satellite_wildfire_resnet18.pth")
+                print("✅ Satellite model loaded")
+    return _satellite_instance
 
 # ==============================
 # 🏠 HOME / HEALTH CHECK
@@ -70,7 +91,7 @@ async def detect_fire_smoke(file: UploadFile = File(...)):
     with open(path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    detections = yolo.detect(path)
+    detections = get_yolo().detect(path)
     return {"detections": detections}
 
 
@@ -82,7 +103,7 @@ async def detect_fire_smoke_stream(file: UploadFile = File(...)):
 
     async def event_generator():
         try:
-            for result in yolo.detect_video_stream(path):
+            for result in get_yolo().detect_video_stream(path):
                 yield f"data: {json.dumps(result)}\n\n"
                 await asyncio.sleep(0.01)
 
@@ -107,7 +128,7 @@ async def detect_satellite_fire(file: UploadFile = File(...)):
     with open(path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    prediction = satellite.predict(path)
+    prediction = get_satellite().predict(path)
     return prediction
 
 
@@ -132,7 +153,7 @@ def detect_frame(data: dict):
             return {"error": "Could not decode frame"}
 
         # Perform inference (Heavy CPU work)
-        results = yolo.model(frame, conf=0.15, verbose=False)
+        results = get_yolo().model(frame, conf=0.15, verbose=False)
         detections = []
 
         for r in results:
@@ -208,7 +229,7 @@ def background_fetch_satellite_data():
             
         # Step 2: Verify hotspots
         print("\n🔍 Step 2: Verifying with computer vision...")
-        verification_results = verify_all_hotspots(thermal_hotspots, yolo.model)
+        verification_results = verify_all_hotspots(thermal_hotspots, get_yolo().model)
         
         # Step 3: Format response
         response = {
