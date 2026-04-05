@@ -13,17 +13,7 @@ from datetime import datetime
 import time
 import threading
 
-# ===== EXISTING SERVICES =====
-from services.yolo_service import FireSmokeDetector
-from services.satellite_service import SatelliteFireDetector
-
-# ===== NEW: FIRMS SATELLITE IMPORTS =====
-from firms_fetcher import fetch_modis_data
-from alert_engine import filter_fire_events
-from hotspot_verifier import verify_all_hotspots
-
-# ===== NEW: GOOGLE EARTH ENGINE SERVICE =====
-from services.gee_service import analyze_hotspot
+# ===== ENDPOINTS & SERVICES (LAZY LOADING) =====
 
 app = FastAPI(title="Forest Fire AI System")
 
@@ -52,6 +42,8 @@ def get_yolo():
     if _yolo_instance is None:
         with model_lock:
             if _yolo_instance is None:
+                # LAZY IMPORT
+                from services.yolo_service import FireSmokeDetector
                 print("⏳ Loading YOLO model...")
                 _yolo_instance = FireSmokeDetector("models/fire_smoke_yolo_best.pt")
                 print("✅ YOLO model loaded")
@@ -62,6 +54,8 @@ def get_satellite():
     if _satellite_instance is None:
         with model_lock:
             if _satellite_instance is None:
+                # LAZY IMPORT
+                from services.satellite_service import SatelliteFireDetector
                 print("⏳ Loading satellite model...")
                 _satellite_instance = SatelliteFireDetector("models/satellite_wildfire_resnet18.pth")
                 print("✅ Satellite model loaded")
@@ -214,6 +208,11 @@ def background_fetch_satellite_data():
         satellite_cache["is_fetching"] = True
         
     try:
+        # LAZY IMPORTS
+        from firms_fetcher import fetch_modis_data
+        from alert_engine import filter_fire_events
+        from hotspot_verifier import verify_all_hotspots
+        
         print("\n" + "="*60)
         print("🛰️ SATELLITE ALERT SYSTEM - UPDATING DATA (BACKGROUND)")
         print("="*60)
@@ -304,6 +303,8 @@ def get_all_satellite_alerts():
     """
     Get ALL thermal hotspots without verification (for comparison/debugging).
     """
+    from firms_fetcher import fetch_modis_data
+    from alert_engine import filter_fire_events
     df = fetch_modis_data()
     alerts = filter_fire_events(df)
     
@@ -319,7 +320,9 @@ def get_all_satellite_alerts():
 # ==============================
 
 @app.get("/api/hotspot-details")
-async def get_hotspot_details(lat: float, lon: float, date: str = None):
+def get_hotspot_details(lat: float, lon: float, date: str = None):
+    # LAZY IMPORT
+    from services.gee_service import analyze_hotspot
     """
     Get detailed satellite imagery and temperature data for a specific hotspot.
     
