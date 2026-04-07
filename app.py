@@ -12,10 +12,16 @@ import cv2
 from datetime import datetime
 import time
 import threading
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+from services.notification_service import can_send_alert, send_alerts
 
 # ===== ENDPOINTS & SERVICES (LAZY LOADING) =====
 
-app = FastAPI(title="Forest Fire AI System")
+app = FastAPI(title="Wildfire System")
 
 # Enable CORS for frontend
 app.add_middleware(
@@ -88,6 +94,12 @@ async def detect_fire_smoke(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, f)
 
     detections = get_yolo().detect(path)
+    
+    # Check for fire and send notification if cooldown allows
+    if len(detections) > 0 and can_send_alert("manual_upload"):
+        # For manual uploads, we don't have GPS coordinates, so we report as Local
+        send_alerts("Local", "Sensor", int(detections[0]['confidence'] * 100), source="Manual Upload Diagnostic")
+        
     return {"detections": detections}
 
 
@@ -159,6 +171,12 @@ def detect_frame(data: dict):
                     "confidence": float(box.conf),
                     "bbox": box.xyxy.tolist()[0]
                 })
+
+        # Check for fire and send notification if cooldown allows
+        if len(detections) > 0 and can_send_alert("live_camera"):
+            # For live camera, we report as Optic Feed
+            avg_conf = int(sum(d['confidence'] for d in detections) / len(detections) * 100)
+            send_alerts("Optic", "Feed", avg_conf, source="Live Optic Sensor")
 
         return {
             "detections": detections,
@@ -255,6 +273,23 @@ def background_fetch_satellite_data():
             satellite_cache["last_updated"] = time.time()
             satellite_cache["is_fetching"] = False
         
+        # Step 4: Emergency Notifications (with cooldown)
+        verified_fires = verification_results['verified_fires']
+        if len(verified_fires) > 0:
+            print(f"🚨 Sending emergency notifications for {len(verified_fires)} verified fires...")
+            for fire in verified_fires:
+                # Use a unique context per fire location (rounded to 2 decimal places) 
+                # to allow concurrent alerts for different regions
+                loc_context = f"sat_{round(fire['lat'], 2)}_{round(fire['lon'], 2)}"
+                
+                if can_send_alert(loc_context):
+                    send_alerts(
+                        fire['lat'], 
+                        fire['lon'], 
+                        fire['confidence'], 
+                        source="NASA MODIS Satellite"
+                    )
+
         print("✅ Background cache update complete")
         print("="*60 + "\n")
         

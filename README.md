@@ -1,42 +1,57 @@
-# 🔥 Wildfire Detection - Backend API
+# Wildfire System - Backend API
 
-FastAPI backend for real-time fire and smoke detection using YOLO deep learning model. Supports video analysis, live webcam feeds, and network camera (IP Webcam) integration.
+FastAPI backend for real-time fire and smoke detection using YOLO deep learning model with integrated emergency alert system. Supports video analysis, live webcam feeds, satellite monitoring, and automated notifications.
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Latest-green)
 ![YOLO](https://img.shields.io/badge/YOLO-v8-red)
+![Twilio](https://img.shields.io/badge/Twilio-SMS-orange)
 
-## ✨ Features
+## Features
 
+### Detection Capabilities
 - **Real-time Fire Detection**: YOLO-based object detection for fire and smoke
 - **Video Analysis**: Frame-by-frame detection with streaming results
 - **Live Camera Support**: Real-time detection from webcam or network cameras
+- **Satellite Monitoring**: NASA MODIS satellite data integration for large-scale monitoring
 - **CORS Proxy**: Bypass CORS restrictions for IP Webcam integration
 - **Server-Sent Events**: Stream detection results in real-time
 - **Low Latency**: Optimized for fast detection (< 100ms per frame)
 
-## 🏗️ Architecture
+### Alert System
+- **85% Confidence Threshold**: Alerts only sent for high-confidence detections (>=85%)
+- **Dual Notification**: Both email and SMS alerts for critical detections
+- **Smart Cooldown**: 30-minute cooldown prevents alert spam per location
+- **Multiple Sources**: Manual uploads, live cameras, and satellite detections
+- **Emergency Contacts**: Configurable email and phone number lists
+
+## Architecture
 
 ```
 backend/
-├── app.py                  # Main FastAPI application
-├── services/
-│   └── yolo_service.py    # YOLO detection service
-├── models/
-│   ├── README.md          # Model setup instructions
-│   └── best.pt            # YOLO model (not in repo)
-├── uploads/               # Temporary file storage
-├── requirements.txt       # Python dependencies
-└── README.md             # This file
+|-- app.py                          # Main FastAPI application
+|-- services/
+|   |-- yolo_service.py            # YOLO detection service
+|   |-- notification_service.py    # Email & SMS alert system
+|   -- satellite_service.py        # NASA satellite monitoring
+|-- models/
+|   |-- README.md                  # Model setup instructions
+|   -- best.pt                     # YOLO model (not in repo)
+|-- uploads/                       # Temporary file storage
+|-- .env                           # Configuration file
+|-- requirements.txt               # Python dependencies
+-- README.md                       # This file
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
 - Python 3.8 or higher
 - YOLO model trained for fire/smoke detection (`.pt` file)
 - 4GB+ RAM recommended
+- Gmail account with App Password (for email alerts)
+- Twilio account (for SMS alerts)
 
 ### Installation
 
@@ -66,228 +81,125 @@ backend/
    - Place your trained model file (e.g., `best.pt`) in the `models/` directory
    - See `models/README.md` for detailed instructions
 
-5. **Run the server:**
+5. **Configure Environment:**
+   ```bash
+   # Copy and edit the environment file
+   cp .env.example .env
+   # Edit .env with your credentials
+   ```
+
+6. **Run the server:**
    ```bash
    uvicorn app:app --reload
    ```
 
-6. **Access the API:**
+7. **Access the API:**
    - API: `http://localhost:8000`
    - Docs: `http://localhost:8000/docs`
    - Health: `http://localhost:8000/`
 
-## 📊 API Endpoints
+## Configuration
+
+### Environment Variables (.env)
+
+```bash
+# Email Configuration (Gmail)
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=wildfire-alert@gmail.com
+SMTP_PASSWORD=your_gmail_app_password
+FROM_EMAIL=wildfire-alert@gmail.com
+EMERGENCY_GROUP_EMAILS=a2056164@gmail.com,akashmoreasm6000@gmail.com
+
+# SMS Configuration (Twilio)
+TWILIO_ACCOUNT_SID=your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=+1234567890
+EMERGENCY_PHONE_NUMBERS=+919876543210,+919876543211
+
+# Detection Settings
+CONFIDENCE_THRESHOLD=0.25
+ALERT_CONFIDENCE_THRESHOLD=85
+COOLDOWN_MINUTES=30
+```
+
+### Alert Threshold Configuration
+
+The system uses an **85% confidence threshold** for sending alerts:
+
+- **Detection Threshold**: 0.25 (25%) for general detection
+- **Alert Threshold**: 85% for sending email/SMS notifications
+- **Cooldown**: 30 minutes between alerts per location
+
+## API Endpoints
 
 ### Health Check
-
 ```http
 GET /
 ```
 
-Returns API status and version.
-
-**Response:**
-```json
-{
-  "message": "Wildfire Detection API",
-  "status": "active"
-}
-```
-
----
-
 ### Video/Image Detection
-
 ```http
 POST /detect/fire-smoke
 ```
-
 Upload video or image file for fire/smoke detection.
 
-**Request:**
-- Content-Type: `multipart/form-data`
-- Body: `file` (video or image file)
-
-**Response:**
-```json
-{
-  "detections": [
-    {
-      "class": 0,
-      "confidence": 0.85
-    }
-  ],
-  "has_fire": true,
-  "total_detections": 1
-}
-```
-
----
-
 ### Streaming Detection (SSE)
-
 ```http
 POST /detect/fire-smoke/stream
 ```
-
 Stream detection results frame-by-frame using Server-Sent Events.
 
-**Request:**
-- Content-Type: `multipart/form-data`
-- Body: `file` (video file)
-
-**Response:**
-- Content-Type: `text/event-stream`
-- Streams JSON events for each frame with detections
-
-**Event Format:**
-```json
-{
-  "frame": 42,
-  "detections": [...],
-  "has_fire": true,
-  "timestamp": "2026-01-30T03:30:00"
-}
-```
-
----
-
 ### Frame Detection (Webcam)
-
 ```http
 POST /detect/frame
 ```
-
 Detect fire/smoke in a single frame (base64 encoded).
 
-**Request:**
-```json
-{
-  "frame": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
-}
+### Satellite Monitoring
+```http
+GET /satellite/fires
 ```
-
-**Response:**
-```json
-{
-  "detections": [
-    {
-      "class": 0,
-      "confidence": 0.92,
-      "bbox": [100, 150, 300, 400]
-    }
-  ],
-  "has_fire": true,
-  "timestamp": "2026-01-30T03:30:00.123456",
-  "frame_size": [480, 640]
-}
-```
-
----
+Get current fire data from NASA MODIS satellites.
 
 ### Camera Proxy (CORS Bypass)
-
 ```http
 GET /proxy/camera?url={camera_url}
 ```
-
 Proxy endpoint to fetch IP Webcam stream and serve from same origin.
 
-**Parameters:**
-- `url`: IP Webcam stream URL (e.g., `http://192.168.1.100:8080/shot.jpg`)
+## Alert System
 
-**Response:**
-- Content-Type: `image/jpeg`
-- Returns camera image with CORS headers
+### How Alerts Work
 
----
+1. **Detection Occurs**: Any source detects fire/smoke
+2. **Confidence Check**: If confidence < 85% -> No alerts
+3. **Alert Triggered**: If confidence >= 85%:
+   - Email sent to emergency group
+   - SMS sent to emergency contacts
+   - 30-minute cooldown engaged
 
-## 🔧 Configuration
+### Alert Message Format
 
-### Detection Threshold
+**Email Subject**: `URGENT: Fire Detected - [Source] Alert`
 
-Adjust confidence threshold in `app.py`:
-
-```python
-# Lower threshold = more sensitive (more false positives)
-# Higher threshold = less sensitive (may miss fires)
-results = yolo.model(frame, conf=0.25, verbose=False)
+**SMS Message**:
+```
+WILDFIRE SYSTEM ALERT
+Confidence: 92%
+Location: 34.05, -118.24
+Source: Live Optic Sensor
+Maps: https://www.google.com/maps?q=34.05,-118.24
+URGENT: Verify and alert emergency services!
 ```
 
-**Recommended values:**
-- `0.25` - Balanced (default)
-- `0.15` - More sensitive
-- `0.40` - Less sensitive, higher accuracy
+### Supported Detection Sources
 
-### CORS Settings
+- **Manual Upload**: User-uploaded images/videos
+- **Live Camera**: Real-time webcam/IP camera feeds
+- **Satellite**: NASA MODIS satellite monitoring
 
-Update CORS origins in `app.py`:
-
-```python
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Add your frontend URL
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-```
-
-**For production:**
-```python
-allow_origins=["https://your-frontend-domain.com"]
-```
-
-### Model Path
-
-Change model path in `app.py`:
-
-```python
-yolo = FireSmokeDetector('models/your-model.pt')
-```
-
-## 🧪 Testing
-
-### Using cURL
-
-**Test health endpoint:**
-```bash
-curl http://localhost:8000/
-```
-
-**Test image detection:**
-```bash
-curl -X POST http://localhost:8000/detect/fire-smoke \
-  -F "file=@test_image.jpg"
-```
-
-**Test streaming detection:**
-```bash
-curl -X POST http://localhost:8000/detect/fire-smoke/stream \
-  -F "file=@test_video.mp4"
-```
-
-### Using Swagger UI
-
-1. Start the server
-2. Open `http://localhost:8000/docs`
-3. Try out endpoints interactively
-
-### Using Python
-
-```python
-import requests
-
-# Upload image
-with open('fire_image.jpg', 'rb') as f:
-    response = requests.post(
-        'http://localhost:8000/detect/fire-smoke',
-        files={'file': f}
-    )
-    print(response.json())
-```
-
-## 📦 Dependencies
+## Dependencies
 
 Core dependencies (see `requirements.txt`):
 
@@ -296,9 +208,12 @@ Core dependencies (see `requirements.txt`):
 - **Ultralytics** - YOLO implementation
 - **OpenCV** - Image/video processing
 - **NumPy** - Numerical operations
-- **Requests/HTTPX** - HTTP client for proxy
+- **Requests** - HTTP client for proxy
+- **Twilio** - SMS service integration
+- **Earth Engine API** - Satellite data
+- **Geemap** - Geospatial visualization
 
-## 🔒 Security
+## Security
 
 ### Production Checklist
 
@@ -311,67 +226,7 @@ Core dependencies (see `requirements.txt`):
 - [ ] Environment variables for sensitive config
 - [ ] Logging and monitoring
 
-### Environment Variables
-
-Create `.env` file:
-
-```env
-MODEL_PATH=models/best.pt
-UPLOAD_DIR=uploads
-MAX_FILE_SIZE=100000000
-CONFIDENCE_THRESHOLD=0.25
-ALLOWED_ORIGINS=http://localhost:5173,https://your-domain.com
-```
-
-Load in `app.py`:
-```python
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-MODEL_PATH = os.getenv('MODEL_PATH', 'models/best.pt')
-```
-
-## 🐛 Troubleshooting
-
-### Model not loading
-
-**Error:** `FileNotFoundError: models/best.pt`
-
-**Solution:**
-1. Add your YOLO model to `models/` directory
-2. Check model path in `app.py`
-3. See `models/README.md` for setup instructions
-
-### CORS errors
-
-**Error:** `Access to fetch blocked by CORS policy`
-
-**Solution:**
-1. Add frontend URL to `allow_origins` in `app.py`
-2. Restart server after changes
-
-### Out of memory
-
-**Error:** `RuntimeError: CUDA out of memory`
-
-**Solution:**
-1. Use smaller model (YOLOv8n instead of YOLOv8x)
-2. Reduce image resolution
-3. Process fewer frames per second
-4. Use CPU instead of GPU
-
-### Slow detection
-
-**Issue:** Detection takes > 1 second per frame
-
-**Solution:**
-1. Use GPU if available
-2. Use smaller YOLO model (n/s instead of m/l/x)
-3. Reduce input image size
-4. Lower confidence threshold (processes faster)
-
-## 📈 Performance
+## Performance
 
 ### Benchmarks (on CPU)
 
@@ -381,21 +236,11 @@ MODEL_PATH = os.getenv('MODEL_PATH', 'models/best.pt')
 | YOLOv8s | ~7 | Better | 3GB |
 | YOLOv8m | ~4 | Best | 4GB |
 
-### Optimization Tips
+## Integration Examples
 
-1. **Use GPU**: 10-20x faster than CPU
-2. **Batch processing**: Process multiple frames together
-3. **Frame skipping**: Analyze every 2nd or 3rd frame
-4. **Model quantization**: Reduce model size
-5. **Async processing**: Use background tasks
-
-## 🔗 Integration
-
-### Frontend Integration
-
-**React/JavaScript:**
+### Frontend Integration (React)
 ```javascript
-// Upload video
+// Upload video for detection
 const formData = new FormData();
 formData.append('file', videoFile);
 
@@ -405,10 +250,13 @@ const response = await fetch('http://localhost:8000/detect/fire-smoke', {
 });
 
 const result = await response.json();
-console.log(result);
+if (result.has_fire && result.detections[0].confidence >= 0.85) {
+  // High confidence fire detected - alerts will be sent automatically
+  console.log('Emergency alerts triggered!');
+}
 ```
 
-**Streaming detection:**
+### Streaming Detection
 ```javascript
 const eventSource = new EventSource(
   'http://localhost:8000/detect/fire-smoke/stream'
@@ -417,33 +265,30 @@ const eventSource = new EventSource(
 eventSource.onmessage = (event) => {
   const data = JSON.parse(event.data);
   if (data.has_fire) {
-    alert('Fire detected!');
+    console.log('Fire detected with confidence:', data.detections[0].confidence);
   }
 };
 ```
 
-### Mobile Integration
+## Troubleshooting
 
-Use the `/detect/frame` endpoint with base64 encoded images from mobile camera.
+### Email Issues
+- **Error**: `Username and Password not accepted`
+- **Solution**: Use Gmail App Password, not regular password
 
-## 📝 Model Requirements
+### SMS Issues
+- **Error**: `TwilioRestException`
+- **Solution**: Verify Twilio credentials and phone numbers
 
-Your YOLO model should:
+### Model Loading
+- **Error**: `FileNotFoundError: models/best.pt`
+- **Solution**: Add YOLO model to models/ directory
 
-- Be in PyTorch `.pt` format
-- Have classes for fire and/or smoke detection
-- Be trained on diverse fire/smoke dataset
-- Support standard YOLO input (RGB images)
+### CORS Errors
+- **Error**: `Access to fetch blocked by CORS policy`
+- **Solution**: Add frontend URL to allow_origins in app.py
 
-**Model classes example:**
-```python
-{
-    0: 'fire',
-    1: 'smoke'
-}
-```
-
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Please:
 
@@ -453,16 +298,11 @@ Contributions welcome! Please:
 4. Add tests if applicable
 5. Submit a pull request
 
-## 📄 License
+## License
 
 MIT License - see LICENSE file for details
 
-## 🔗 Related Projects
-
-- **Frontend**: [wildfire-frontend](https://github.com/Anandkumae/wildfire-frontend)
-- **YOLO**: [Ultralytics](https://github.com/ultralytics/ultralytics)
-
-## 📧 Support
+## Support
 
 For issues or questions:
 - Open an issue on GitHub
@@ -470,6 +310,6 @@ For issues or questions:
 
 ---
 
-**⚠️ Important:** This is a detection system for early warning. Always follow proper fire safety protocols and contact emergency services when fire is detected.
+**Important**: This is a detection system for early warning. Always follow proper fire safety protocols and contact emergency services when fire is detected.
 
-**🔥 Built with FastAPI + YOLO for real-time fire detection**
+**Built with FastAPI + YOLO + Twilio for comprehensive wildfire detection and alerting**
